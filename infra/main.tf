@@ -3,7 +3,7 @@
 # -------------------------------------------------------------------------
 module "vpc" {
   source                  = "./modules/vpc"
-  vpc_name                = "vpc-${var.env}"
+  vpc_name                = "youtube-data-pipeline-vpc"
   vpc_cidr                = "10.0.0.0/16"
   azs                     = var.azs
   public_subnets          = var.public_subnets
@@ -17,7 +17,7 @@ module "vpc" {
   single_nat_gateway      = true
   one_nat_gateway_per_az  = false
   tags = {
-    Name      = "vpc-${var.env}-${var.region}"
+    Name      = "youtube-data-pipeline-vpc"
     ManagedBy = "terraform"
     Project   = "youtube data pipeline"
   }
@@ -28,7 +28,7 @@ module "vpc" {
 # -------------------------------------------------------------------------
 module "sns" {
   source     = "./modules/sns"
-  topic_name = "job-status-change-topic-${var.env}"
+  topic_name = "job-status-change-topic"
   subscriptions = [
     {
       protocol = "email"
@@ -36,7 +36,7 @@ module "sns" {
     }
   ]
   tags = {
-    Name      = "job-status-change-topic-${var.env}"
+    Name      = "job-status-change-topic"
     ManagedBy = "terraform"
     Project   = "youtube data pipeline"
   }
@@ -47,7 +47,7 @@ module "sns" {
 # -------------------------------------------------------------------------
 module "eventbridge_rule" {
   source           = "./modules/eventbridge"
-  rule_name        = "job-state-change-rule-${var.env}"
+  rule_name        = "job-state-change-rule"
   rule_description = "It monitors the media convert job state change event"
   event_pattern = jsonencode({
     source = [
@@ -60,7 +60,7 @@ module "eventbridge_rule" {
   target_id  = "MediaConvertJobStateChange"
   target_arn = module.sns.topic_arn
   tags = {
-    Name      = "mediaconvert-job-state-change-rule-${var.env}"
+    Name      = "mediaconvert-job-state-change-rule"
     ManagedBy = "terraform"
     Project   = "youtube data pipeline"
   }
