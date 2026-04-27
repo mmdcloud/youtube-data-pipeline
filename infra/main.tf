@@ -91,7 +91,7 @@ module "bronze_bucket" {
   bucket_policy = ""
   force_destroy = true
   bucket_notification = {
-    queue = []
+    queue           = []
     lambda_function = []
   }
 }
@@ -118,7 +118,7 @@ module "silver_bucket" {
   bucket_policy = ""
   force_destroy = true
   bucket_notification = {
-    queue = []
+    queue           = []
     lambda_function = []
   }
 }
@@ -145,18 +145,18 @@ module "gold_bucket" {
   bucket_policy = ""
   force_destroy = true
   bucket_notification = {
-    queue = []
+    queue           = []
     lambda_function = []
   }
 }
 
 module "json_to_parquet_function_code" {
-  source             = "./modules/s3"
-  bucket_name        = "json-to-parquet-function-code-${random_id.id.hex}"
-  objects            = [
+  source      = "./modules/s3"
+  bucket_name = "json-to-parquet-function-code-${random_id.id.hex}"
+  objects = [
     {
-      key = ""
-      source = ""
+      key    = "json_to_parquet.zip"
+      source = "./files/json_to_parquet.zip"
     }
   ]
   versioning_enabled = "Enabled"
@@ -177,18 +177,18 @@ module "json_to_parquet_function_code" {
   bucket_policy = ""
   force_destroy = true
   bucket_notification = {
-    queue = []
+    queue           = []
     lambda_function = []
   }
 }
 
 module "youtube_api_ingestion_function_code" {
-  source             = "./modules/s3"
-  bucket_name        = "youtube-api-ingestion-function-code-${random_id.id.hex}"
-  objects            = [
+  source      = "./modules/s3"
+  bucket_name = "youtube-api-ingestion-function-code-${random_id.id.hex}"
+  objects = [
     {
-      key = ""
-      source = ""
+      key    = "youtube_api_ingestion.zip"
+      source = "./files/youtube_api_ingestion.zip"
     }
   ]
   versioning_enabled = "Enabled"
@@ -209,18 +209,18 @@ module "youtube_api_ingestion_function_code" {
   bucket_policy = ""
   force_destroy = true
   bucket_notification = {
-    queue = []
+    queue           = []
     lambda_function = []
   }
 }
 
 module "data_quality_lambda_function_code" {
-  source             = "./modules/s3"
-  bucket_name        = "data-quality-lambda-function-code-${random_id.id.hex}"
-  objects            = [
+  source      = "./modules/s3"
+  bucket_name = "data-quality-lambda-function-code-${random_id.id.hex}"
+  objects = [
     {
-      key = ""
-      source = ""
+      key    = "data_quality_lambda.zip"
+      source = "./files/data_quality_lambda.zip"
     }
   ]
   versioning_enabled = "Enabled"
@@ -241,7 +241,7 @@ module "data_quality_lambda_function_code" {
   bucket_policy = ""
   force_destroy = true
   bucket_notification = {
-    queue = []
+    queue           = []
     lambda_function = []
   }
 }
@@ -391,10 +391,10 @@ module "json_to_parquet" {
   permissions             = []
   env_variables           = {}
   timeout                 = 60
-  handler                 = "json_to_parquet.lambda_handler"
+  handler                 = "lambda.lambda_handler"
   runtime                 = "python3.12"
-  s3_bucket               = module.table_sanity_check_function_code.bucket
-  s3_key                  = "table_sanity_check.zip"
+  s3_bucket               = module.json_to_parquet_function_code.bucket
+  s3_key                  = "json_to_parquet.zip"
   code_signing_config_arn = ""
   layers                  = []
   depends_on              = [module.json_to_parquet_function_code]
@@ -407,10 +407,10 @@ module "youtube_api_ingestion" {
   permissions             = []
   timeout                 = 60
   env_variables           = {}
-  handler                 = "youtube_api_ingestion.lambda_handler"
+  handler                 = "lambda.lambda_handler"
   runtime                 = "python3.12"
-  s3_bucket               = module.extract_table_data_function_code.bucket
-  s3_key                  = "extract_table_data.zip"
+  s3_bucket               = module.youtube_api_ingestion_function_code.bucket
+  s3_key                  = "youtube_api_ingestion.zip"
   code_signing_config_arn = ""
   layers                  = []
   depends_on              = [module.youtube_api_ingestion_function_code]
@@ -423,10 +423,10 @@ module "data_quality_lambda" {
   permissions             = []
   timeout                 = 60
   env_variables           = {}
-  handler                 = "data_quality_lambda.lambda_handler"
+  handler                 = "lambda.lambda_handler"
   runtime                 = "python3.12"
-  s3_bucket               = module.extract_table_data_function_code.bucket
-  s3_key                  = "extract_table_data.zip"
+  s3_bucket               = module.data_quality_lambda_function_code.bucket
+  s3_key                  = "data_quality_lambda.zip"
   code_signing_config_arn = ""
   layers                  = []
   depends_on              = [module.data_quality_lambda_function_code]
@@ -435,17 +435,27 @@ module "data_quality_lambda" {
 # ----------------------------------------------------------------------
 # Glue configuration (Crawler & Data catalog)
 # ----------------------------------------------------------------------
-resource "aws_glue_catalog_database" "database" {
-  name        = var.glue_database_name
-  description = "Glue database for incremental load"
+resource "aws_glue_catalog_database" "silver_catalog_db" {
+  name        = "silver-catalog-db"
+  description = "Glue database for Silver layer"
 }
 
-resource "aws_glue_catalog_table" "table" {
-  name          = var.glue_table_name
-  database_name = aws_glue_catalog_database.database.name
+resource "aws_glue_catalog_database" "gold_catalog_db" {
+  name        = "gold-catalog-db"
+  description = "Glue database for Gold layer"
 }
 
-module "glue_crawler_role" {
+resource "aws_glue_catalog_table" "silver_table" {
+  name          = "silver-table"
+  database_name = aws_glue_catalog_database.silver_catalog_db.name
+}
+
+resource "aws_glue_catalog_table" "gold_table" {
+  name          = "gold-table"
+  database_name = aws_glue_catalog_database.gold_catalog_db.name
+}
+
+module "bronze_glue_crawler_role" {
   source             = "./modules/iam"
   role_name          = "glue-crawler-role-${random_id.id.hex}"
   role_description   = "IAM role for Glue crawler"
@@ -494,28 +504,21 @@ module "glue_crawler_role" {
                     "s3:ListBucket"
                   ],
                   "Resource" : [
-                    "${module.curated_bucket.arn}",
-                    "${module.curated_bucket.arn}/*"
+                    "${module.bronze_bucket.arn}",
+                    "${module.bronze_bucket.arn}/*"
                   ]
-            },
-            {
-                  "Effect"   : "Allow",
-                  "Action"   : [
-                    "s3:PutObject"
-                  ],
-                  "Resource" : "${module.athena_results.arn}"
             }
         ]
     }
     EOF
 }
 
-resource "aws_glue_crawler" "crawler" {
-  database_name = aws_glue_catalog_database.database.name
-  name          = var.glue_crawler_name
-  role          = module.glue_crawler_role.arn
+resource "aws_glue_crawler" "bronze_glue_crawler" {
+  database_name = aws_glue_catalog_database.silver_catalog_db.name
+  name          = "bronze-glue-crawler"
+  role          = module.bronze_glue_crawler_role.arn
   s3_target {
-    path = "s3://${module.raw_bucket.bucket}"
+    path = "s3://${module.bronze_bucket.bucket}"
   }
 }
 
