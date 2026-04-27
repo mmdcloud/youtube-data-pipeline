@@ -69,15 +69,171 @@ module "eventbridge_rule" {
 # -----------------------------------------------------------------------------------------
 # S3 Configuration
 # -----------------------------------------------------------------------------------------
-module "invoices_bucket" {
+module "bronze_bucket" {
   source             = "./modules/s3"
-  bucket_name        = "invoices-${random_id.id.hex}"
+  bucket_name        = "bronze-bucket-${random_id.id.hex}"
   objects            = []
   versioning_enabled = "Enabled"
   cors = [
     {
       allowed_headers = ["*"]
       allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  bucket_policy = ""
+  force_destroy = true
+  bucket_notification = {
+    queue = []
+    lambda_function = []
+  }
+}
+
+module "silver_bucket" {
+  source             = "./modules/s3"
+  bucket_name        = "silver-bucket-${random_id.id.hex}"
+  objects            = []
+  versioning_enabled = "Enabled"
+  cors = [
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  bucket_policy = ""
+  force_destroy = true
+  bucket_notification = {
+    queue = []
+    lambda_function = []
+  }
+}
+
+module "gold_bucket" {
+  source             = "./modules/s3"
+  bucket_name        = "gold-bucket-${random_id.id.hex}"
+  objects            = []
+  versioning_enabled = "Enabled"
+  cors = [
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  bucket_policy = ""
+  force_destroy = true
+  bucket_notification = {
+    queue = []
+    lambda_function = []
+  }
+}
+
+module "json_to_parquet_function_code" {
+  source             = "./modules/s3"
+  bucket_name        = "json-to-parquet-function-code-${random_id.id.hex}"
+  objects            = [
+    {
+      key = ""
+      source = ""
+    }
+  ]
+  versioning_enabled = "Enabled"
+  cors = [
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  bucket_policy = ""
+  force_destroy = true
+  bucket_notification = {
+    queue = []
+    lambda_function = []
+  }
+}
+
+module "youtube_api_ingestion_function_code" {
+  source             = "./modules/s3"
+  bucket_name        = "youtube-api-ingestion-function-code-${random_id.id.hex}"
+  objects            = [
+    {
+      key = ""
+      source = ""
+    }
+  ]
+  versioning_enabled = "Enabled"
+  cors = [
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  bucket_policy = ""
+  force_destroy = true
+  bucket_notification = {
+    queue = []
+    lambda_function = []
+  }
+}
+
+module "data_quality_lambda_function_code" {
+  source             = "./modules/s3"
+  bucket_name        = "data-quality-lambda-function-code-${random_id.id.hex}"
+  objects            = [
+    {
+      key = ""
+      source = ""
+    }
+  ]
+  versioning_enabled = "Enabled"
+  cors = [
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
       allowed_origins = ["*"]
       max_age_seconds = 3000
     }
@@ -108,6 +264,12 @@ module "etl_scripts" {
     {
       allowed_headers = ["*"]
       allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
       allowed_origins = ["*"]
       max_age_seconds = 3000
     }
@@ -160,29 +322,16 @@ module "lambda_function_iam_role" {
             {
                 "Effect": "Allow",
                 "Action": [
-                    "textract:AnalyzeDocument"
-                ],
-                "Resource": "*"
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
                     "s3:*"
                 ],
                 "Resource": [
-                    "${module.invoices_bucket.arn}",
-                    "${module.invoices_bucket.arn}/*"
+                    "${module.bronze_bucket.arn}",
+                    "${module.bronze_bucket.arn}/*",
+                    "${module.silver_bucket.arn}",
+                    "${module.silver_bucket.arn}/*",
+                    "${module.gold_bucket.arn}",
+                    "${module.gold_bucket.arn}/*"
                 ]
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "dynamodb:PutItem",
-                    "dynamodb:GetItem",
-                    "dynamodb:UpdateItem",
-                    "dynamodb:Query"
-                ],
-                "Resource": "${module.invoice_records_dynamodb.arn}"
             }
         ]
     }
@@ -226,15 +375,6 @@ module "step_function_iam_role" {
             {
                 "Effect": "Allow",
                 "Action": [
-                    "sqs:DeleteMessage",
-                    "sqs:GetQueueAttributes",
-                    "sqs:ReceiveMessage"
-                ],
-                "Resource": "${module.document_event_queue.arn}"
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
                     "states:StartExecution"
                 ],
                 "Resource": "${module.step_function.arn}"
@@ -251,29 +391,45 @@ module "json_to_parquet" {
   permissions             = []
   env_variables           = {}
   timeout                 = 60
-  handler                 = "table_sanity_check.lambda_handler"
+  handler                 = "json_to_parquet.lambda_handler"
   runtime                 = "python3.12"
   s3_bucket               = module.table_sanity_check_function_code.bucket
   s3_key                  = "table_sanity_check.zip"
   code_signing_config_arn = ""
   layers                  = []
-  depends_on              = [module.table_sanity_check_function_code]
+  depends_on              = [module.json_to_parquet_function_code]
 }
 
-module "youtube_api_integration" {
+module "youtube_api_ingestion" {
   source                  = "./modules/lambda"
-  function_name           = "youtube-api-integration"
+  function_name           = "youtube-api-ingestion"
   role_arn                = module.lambda_function_iam_role.arn
   permissions             = []
   timeout                 = 60
   env_variables           = {}
-  handler                 = "extract_table_data.lambda_handler"
+  handler                 = "youtube_api_ingestion.lambda_handler"
   runtime                 = "python3.12"
   s3_bucket               = module.extract_table_data_function_code.bucket
   s3_key                  = "extract_table_data.zip"
   code_signing_config_arn = ""
   layers                  = []
-  depends_on              = [module.extract_table_data_function_code]
+  depends_on              = [module.youtube_api_ingestion_function_code]
+}
+
+module "data_quality_lambda" {
+  source                  = "./modules/lambda"
+  function_name           = "data-quality-lambda"
+  role_arn                = module.lambda_function_iam_role.arn
+  permissions             = []
+  timeout                 = 60
+  env_variables           = {}
+  handler                 = "data_quality_lambda.lambda_handler"
+  runtime                 = "python3.12"
+  s3_bucket               = module.extract_table_data_function_code.bucket
+  s3_key                  = "extract_table_data.zip"
+  code_signing_config_arn = ""
+  layers                  = []
+  depends_on              = [module.data_quality_lambda_function_code]
 }
 
 # ----------------------------------------------------------------------
@@ -395,7 +551,7 @@ resource "aws_glue_job" "bronze_to_silver" {
 
   command {
     name            = "glueetl"
-    script_location = "s3://${aws_s3_bucket.scripts.bucket}/scripts/bronze_to_silver.py"
+    script_location = "s3://${module.etl_scripts.bucket}/scripts/bronze_to_silver.py"
     python_version  = "3"
   }
 
@@ -417,7 +573,7 @@ resource "aws_glue_job" "silver_to_gold" {
 
   command {
     name            = "glueetl"
-    script_location = "s3://${aws_s3_bucket.scripts.bucket}/scripts/silver_to_gold.py"
+    script_location = "s3://${module.etl_scripts.bucket}/scripts/silver_to_gold.py"
     python_version  = "3"
   }
 
