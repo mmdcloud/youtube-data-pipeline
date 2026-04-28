@@ -26,9 +26,9 @@ module "vpc" {
 # -------------------------------------------------------------------------
 # SNS Configuration
 # -------------------------------------------------------------------------
-module "sns" {
+module "yt_data_pipeline_alerts" {
   source     = "./modules/sns"
-  topic_name = "job-status-change-topic"
+  topic_name = "yt-data-pipeline-alerts"
   subscriptions = [
     {
       protocol = "email"
@@ -36,7 +36,7 @@ module "sns" {
     }
   ]
   tags = {
-    Name      = "job-status-change-topic"
+    Name      = "yt-data-pipeline-alerts"
     ManagedBy = "terraform"
     Project   = "youtube data pipeline"
   }
@@ -384,7 +384,7 @@ module "step_function_iam_role" {
     EOF
 }
 
-module "json_to_parquet" {
+module "json_to_parquet_function" {
   source                  = "./modules/lambda"
   function_name           = "json-to-parquet"
   role_arn                = module.lambda_function_iam_role.arn
@@ -400,7 +400,7 @@ module "json_to_parquet" {
   depends_on              = [module.json_to_parquet_function_code]
 }
 
-module "youtube_api_ingestion" {
+module "youtube_api_ingestion_function" {
   source                  = "./modules/lambda"
   function_name           = "youtube-api-ingestion"
   role_arn                = module.lambda_function_iam_role.arn
@@ -416,7 +416,7 @@ module "youtube_api_ingestion" {
   depends_on              = [module.youtube_api_ingestion_function_code]
 }
 
-module "data_quality_lambda" {
+module "data_quality_lambda_function" {
   source                  = "./modules/lambda"
   function_name           = "data-quality-lambda"
   role_arn                = module.lambda_function_iam_role.arn
@@ -435,24 +435,29 @@ module "data_quality_lambda" {
 # ----------------------------------------------------------------------
 # Glue configuration (Crawler & Data catalog)
 # ----------------------------------------------------------------------
-resource "aws_glue_catalog_database" "silver_catalog_db" {
-  name        = "silver-catalog-db"
+resource "aws_glue_catalog_database" "silver_db" {
+  name        = "silver-db"
   description = "Glue database for Silver layer"
 }
 
-resource "aws_glue_catalog_database" "gold_catalog_db" {
-  name        = "gold-catalog-db"
+resource "aws_glue_catalog_database" "gold_db" {
+  name        = "gold-db"
   description = "Glue database for Gold layer"
 }
 
 resource "aws_glue_catalog_table" "silver_table" {
+  name          = "bronze-table"
+  database_name = aws_glue_catalog_database.silver_db.name
+}
+
+resource "aws_glue_catalog_table" "silver_table" {
   name          = "silver-table"
-  database_name = aws_glue_catalog_database.silver_catalog_db.name
+  database_name = aws_glue_catalog_database.silver_db.name
 }
 
 resource "aws_glue_catalog_table" "gold_table" {
   name          = "gold-table"
-  database_name = aws_glue_catalog_database.gold_catalog_db.name
+  database_name = aws_glue_catalog_database.gold_db.name
 }
 
 module "bronze_glue_crawler_role" {
@@ -593,12 +598,19 @@ resource "aws_glue_job" "silver_to_gold" {
 # -----------------------------------------------------------------------------------------
 module "step_function" {
   source   = "./modules/step-function"
-  name     = "InvoiceProcessingWorkflow"
+  name     = "YoutubeDataPipelineWorkflow"
   role_arn = module.step_function_iam_role.arn
   definition = templatefile("${path.module}/files/pipeline_orchestration.json", {
-    table_sanity_check_function_arn = module.table_sanity_check_function.arn
-    extract_table_data_function_arn = module.extract_table_data_function.arn
-    invalid_invoice_error_topic_arn = module.invalid_invoice_error_topic.topic_arn
-    data_storage_failure_topic_arn  = module.data_storage_failure_topic.topic_arn
+    alert_topic_arn = module.yt_data_pipeline_alerts.topic_arn
+    yt_ingestion_function_arn = module.youtube_api_ingestion_function.arn
+    json_to_parquet_function_arn = module.json_to_parquet_function.arn
+    data_quality_lambda_function_arn = module.data_quality_lambda_function.arn
+    bronze_database = "bronze-db"
+    bronze_table = "bronze-table"
+    silver_bucket = "silver-bucket-${random_id.id.hex}"
+    silver_database = "silver-db"
+    silver_table = "silver-table"
+    gold_bucket = "gold-bucket-${random_id.id.hex}"
+    gold_database = "gold-db"
   })
 }
