@@ -1,27 +1,27 @@
 # -------------------------------------------------------------------------
 # VPC Configuration
 # -------------------------------------------------------------------------
-module "vpc" {
-  source                  = "./modules/vpc"
-  vpc_name                = "youtube-data-pipeline-vpc"
-  vpc_cidr                = "10.0.0.0/16"
-  azs                     = var.azs
-  public_subnets          = var.public_subnets
-  private_subnets         = var.private_subnets
-  database_subnets        = []
-  enable_dns_hostnames    = true
-  enable_dns_support      = true
-  create_igw              = true
-  map_public_ip_on_launch = true
-  enable_nat_gateway      = false
-  single_nat_gateway      = true
-  one_nat_gateway_per_az  = false
-  tags = {
-    Name      = "youtube-data-pipeline-vpc"
-    ManagedBy = "terraform"
-    Project   = "youtube data pipeline"
-  }
-}
+# module "vpc" {
+#   source                  = "./modules/vpc"
+#   vpc_name                = "youtube-data-pipeline-vpc"
+#   vpc_cidr                = "10.0.0.0/16"
+#   azs                     = var.azs
+#   public_subnets          = var.public_subnets
+#   private_subnets         = var.private_subnets
+#   database_subnets        = []
+#   enable_dns_hostnames    = true
+#   enable_dns_support      = true
+#   create_igw              = true
+#   map_public_ip_on_launch = true
+#   enable_nat_gateway      = false
+#   single_nat_gateway      = true
+#   one_nat_gateway_per_az  = false
+#   tags = {
+#     Name      = "youtube-data-pipeline-vpc"
+#     ManagedBy = "terraform"
+#     Project   = "youtube data pipeline"
+#   }
+# }
 
 # -------------------------------------------------------------------------
 # SNS Configuration
@@ -45,26 +45,26 @@ module "yt_data_pipeline_alerts" {
 # -------------------------------------------------------------------------
 # EventBridge Rule
 # -------------------------------------------------------------------------
-module "eventbridge_rule" {
-  source           = "./modules/eventbridge"
-  rule_name        = "job-state-change-rule"
-  rule_description = "It monitors the media convert job state change event"
-  event_pattern = jsonencode({
-    source = [
-      "aws.mediaconvert"
-    ]
-    detail-type = [
-      "MediaConvert Job State Change"
-    ]
-  })
-  target_id  = "MediaConvertJobStateChange"
-  target_arn = module.sns.topic_arn
-  tags = {
-    Name      = "mediaconvert-job-state-change-rule"
-    ManagedBy = "terraform"
-    Project   = "youtube data pipeline"
-  }
-}
+# module "eventbridge_rule" {
+#   source           = "./modules/eventbridge"
+#   rule_name        = "job-state-change-rule"
+#   rule_description = "It monitors the media convert job state change event"
+#   event_pattern = jsonencode({
+#     source = [
+#       "aws.mediaconvert"
+#     ]
+#     detail-type = [
+#       "MediaConvert Job State Change"
+#     ]
+#   })
+#   target_id  = "MediaConvertJobStateChange"
+#   target_arn = module.sns.topic_arn
+#   tags = {
+#     Name      = "mediaconvert-job-state-change-rule"
+#     ManagedBy = "terraform"
+#     Project   = "youtube data pipeline"
+#   }
+# }
 
 # -----------------------------------------------------------------------------------------
 # S3 Configuration
@@ -351,7 +351,7 @@ module "step_function_iam_role" {
             {
                 "Action": "sts:AssumeRole",
                 "Principal": {
-                  "Service": "lambda.amazonaws.com"
+                  "Service": "states.amazonaws.com"
                 },
                 "Effect": "Allow",
                 "Sid": ""
@@ -435,6 +435,11 @@ module "data_quality_lambda_function" {
 # ----------------------------------------------------------------------
 # Glue configuration (Crawler & Data catalog)
 # ----------------------------------------------------------------------
+resource "aws_glue_catalog_database" "bronze_db" {
+  name        = "bronze-db"
+  description = "Glue database for Bronze layer"
+}
+
 resource "aws_glue_catalog_database" "silver_db" {
   name        = "silver-db"
   description = "Glue database for Silver layer"
@@ -445,9 +450,9 @@ resource "aws_glue_catalog_database" "gold_db" {
   description = "Glue database for Gold layer"
 }
 
-resource "aws_glue_catalog_table" "silver_table" {
+resource "aws_glue_catalog_table" "bronze_table" {
   name          = "bronze-table"
-  database_name = aws_glue_catalog_database.silver_db.name
+  database_name = aws_glue_catalog_database.bronze_db.name
 }
 
 resource "aws_glue_catalog_table" "silver_table" {
@@ -519,7 +524,7 @@ module "bronze_glue_crawler_role" {
 }
 
 resource "aws_glue_crawler" "bronze_glue_crawler" {
-  database_name = aws_glue_catalog_database.silver_catalog_db.name
+  database_name = aws_glue_catalog_database.bronze_db.name
   name          = "bronze-glue-crawler"
   role          = module.bronze_glue_crawler_role.arn
   s3_target {
@@ -591,6 +596,52 @@ resource "aws_glue_job" "silver_to_gold" {
     "--enable-continuous-cloudwatch-log" = "true"
     "--enable-metrics"                   = "true"
   }
+}
+
+# ----------------------------------------------------------------------
+# Athena configuration
+# ----------------------------------------------------------------------
+module "athena_results" {
+  source        = "./modules/s3"
+  bucket_name   = "athena-results-${random_id.id.hex}"
+  objects       = []
+  bucket_policy = ""
+  cors = [
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    },
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["PUT"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  versioning_enabled = "Enabled"
+  force_destroy      = true
+}
+
+resource "aws_athena_workgroup" "etl" {
+  name = "athena-glue-wg"
+  configuration {
+    result_configuration {
+      output_location = "s3://${module.athena_results.bucket}/"
+    }
+    enforce_workgroup_configuration    = true
+    publish_cloudwatch_metrics_enabled = true
+  }
+  state = "ENABLED"
+}
+
+resource "aws_athena_named_query" "etl_query" {
+  name        = "etl_query"
+  database    = aws_glue_catalog_database.gold_db.name
+  description = "Query sample table"
+  query       = "SELECT * FROM ${aws_glue_catalog_table.table.name} LIMIT 10;"
+  workgroup   = aws_athena_workgroup.etl.name
 }
 
 # -----------------------------------------------------------------------------------------
